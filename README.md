@@ -1,6 +1,6 @@
 # 🐟 ESP32-C Fish Feeder Notifier
 
-An **ESP32-C project** that sends a notification (via LED) at **7:00 AM** and **7:00 PM** — a friendly reminder to feed my little fish.
+An **ESP32-C project** that sends a notification (via LED + MQTT) at **7:00 AM** and **7:00 PM** — a friendly reminder to feed my little fish.
 
 ## 🧠 Project Goal
 
