@@ -14,7 +14,7 @@ const char *ssid = "ssid_of_your_wifi";
 const char *password = "your_wifi_password";
 #endif
 
-#define LED_PIN GPIO_NUM_0
+#define LED_PIN GPIO_NUM_4
 #define FEED_BUTTON_PIN 3 // GPIO RTC capable
 
 // Configuration MQTT (ThingsBoard)
@@ -25,13 +25,20 @@ const char *mqtt_topic = "v1/feedfish/esp32/";
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-RTC_DATA_ATTR bool ledNotified = false;
+// battery level
+const int BATTERY_ADC_PIN = 0;     // GPIO0 (ADC1_CH0)
+const float R1 = 85000.0;          // 100k
+const float R2 = 100000.0;         // 100k
+const float ADC_REF_VOLTAGE = 3.3; // référence ADC
+const int ADC_RESOLUTION = 4095;   // 12 bits sur ESP32
+
 RTC_DATA_ATTR int bootCount = 0;
 RTC_DATA_ATTR bool wifiFailed = false;
 RTC_DATA_ATTR bool mqttFailed = false;
 RTC_DATA_ATTR bool syncTimeFailed = false;
 RTC_DATA_ATTR struct tm lastSyncTime = {0};
 RTC_DATA_ATTR esp_sleep_wakeup_cause_t lastWakeupReason = ESP_SLEEP_WAKEUP_UNDEFINED;
+RTC_DATA_ATTR float lastBatteryLevel = 0.0;
 
 IPAddress local_IP(192, 168, 1, 111);
 IPAddress gateway(192, 168, 1, 1);
@@ -40,6 +47,23 @@ IPAddress subnet(255, 255, 255, 0);
 float getCurrentHour();
 uint64_t getSecondsToNextWake(float currentHour);
 struct tm timeinfo;
+
+void setupADC()
+{
+  // Configure ADC for battery level measurement
+  analogReadResolution(12);       // résolution 12 bits
+  analogSetAttenuation(ADC_11db); // pour mesurer jusqu’à ~3.3V
+}
+
+float readBatteryLevel()
+{
+  // Lire la valeur de la batterie
+  int adcValue = analogRead(BATTERY_ADC_PIN);
+  float voltage = (adcValue * ADC_REF_VOLTAGE) / ADC_RESOLUTION;
+  float batteryLevel = (voltage * (R1 + R2)) / R2; // diviseur de tension
+  Serial.printf("Battery Level: %.2f V\n", batteryLevel);
+  return batteryLevel;
+}
 
 void connectMQTT()
 {
@@ -84,10 +108,11 @@ void sendMQTTInfo()
 
   char payload[256];
   snprintf(payload, sizeof(payload),
-           "{\"time\":\"%04d-%02d-%02d %02d:%02d:%02d\",\"wakeup_reason\":%d}",
+           "{\"time\":\"%04d-%02d-%02d %02d:%02d:%02d\",\"wakeup_reason\":%d,\"battery\":%.2f}",
            timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
            timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
-           lastWakeupReason);
+           lastWakeupReason,
+           lastBatteryLevel);
 
   Serial.printf("Sending MQTT info: %s\n", payload);
 
@@ -222,8 +247,17 @@ uint64_t getSecondsToNextWake(float currentHour)
 void goToSleep(uint64_t seconds);
 void setLEDState(uint8_t state)
 {
-  gpio_hold_dis(LED_PIN);
+
   gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
+  gpio_config_t io_conf = {};
+  io_conf.pin_bit_mask = (1ULL << LED_PIN);
+  io_conf.mode = GPIO_MODE_OUTPUT;
+  io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+  io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  io_conf.intr_type = GPIO_INTR_DISABLE;
+  gpio_config(&io_conf);
+
+  gpio_hold_dis(LED_PIN);
   gpio_set_level(LED_PIN, state);
 
   if (state == HIGH)
@@ -234,7 +268,6 @@ void setLEDState(uint8_t state)
   {
     gpio_hold_dis(LED_PIN);
   }
-  ledNotified = state == HIGH ? true : false;
   Serial.printf("LED state set to: %s\n", state == HIGH ? "ON" : "OFF");
 }
 
@@ -276,7 +309,9 @@ void setup()
   Serial.printf("Last wakeup reason: \n");
   wakeUpRaison(lastWakeupReason);
   Serial.printf("***************************************************\n");
-  delay(1000);
+  setupADC();
+  lastBatteryLevel = readBatteryLevel();
+  delay(900);
   connectToWiFi();
   syncTime();
   lastSyncTime = timeinfo;
@@ -285,6 +320,18 @@ void setup()
   sendMQTTInfo();
   disconnectMQTT();
   disconnectFromWiFi();
+
+  if (lastBatteryLevel < 3.1)
+  {
+    Serial.println("Battery level is low");
+    while (readBatteryLevel() < 3.1)
+    {
+      setLEDState(HIGH);
+      delay(500);
+      setLEDState(LOW);
+      delay(500);
+    }
+  }
 
   if (wifiFailed || syncTimeFailed)
   {
