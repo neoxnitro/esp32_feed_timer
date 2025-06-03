@@ -39,6 +39,7 @@ RTC_DATA_ATTR bool syncTimeFailed = false;
 RTC_DATA_ATTR struct tm lastSyncTime = {0};
 RTC_DATA_ATTR esp_sleep_wakeup_cause_t lastWakeupReason = ESP_SLEEP_WAKEUP_UNDEFINED;
 RTC_DATA_ATTR float lastBatteryLevel = 0.0;
+RTC_DATA_ATTR int feedButtonState = HIGH;
 
 IPAddress local_IP(192, 168, 1, 111);
 IPAddress gateway(192, 168, 1, 1);
@@ -273,8 +274,8 @@ void setLEDState(uint8_t state)
 
 void goToSleep(uint64_t seconds)
 {
-  pinMode(FEED_BUTTON_PIN, INPUT_PULLUP);
-  esp_deep_sleep_enable_gpio_wakeup(1ULL << FEED_BUTTON_PIN, ESP_GPIO_WAKEUP_GPIO_LOW);
+  esp_deep_sleep_enable_gpio_wakeup(1ULL << FEED_BUTTON_PIN, feedButtonState ? ESP_GPIO_WAKEUP_GPIO_LOW : ESP_GPIO_WAKEUP_GPIO_HIGH);
+  Serial.printf("Enabling GPIO wakeup on feed button %s", feedButtonState == HIGH ? "LOW" : "HIGH");
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
   Serial.printf("Going to sleep for %f hours\n", (uint64_t)seconds / 3600.0);
   Serial.flush();
@@ -299,6 +300,14 @@ void wakeUpRaison(esp_sleep_wakeup_cause_t wakeup_reason)
 
 void setup()
 {
+  gpio_config_t io_conf = {};
+  io_conf.pin_bit_mask = 1ULL << FEED_BUTTON_PIN;
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+  io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  gpio_config(&io_conf);
+  feedButtonState = gpio_get_level((gpio_num_t)FEED_BUTTON_PIN);
+
   Serial.begin(115200);
   delay(2000);
   ++bootCount;
@@ -308,6 +317,7 @@ void setup()
   Serial.printf("Last sync time: %02d:%02d:%02d\n", lastSyncTime.tm_hour, lastSyncTime.tm_min, lastSyncTime.tm_sec);
   Serial.printf("Last wakeup reason: \n");
   wakeUpRaison(lastWakeupReason);
+  Serial.printf("feedButtonState: %s\n", feedButtonState == HIGH ? "HIGH" : "LOW");
   Serial.printf("***************************************************\n");
   setupADC();
   lastBatteryLevel = readBatteryLevel();
