@@ -18,7 +18,7 @@ const char *password = "your_wifi_password";
 #define FEED_BUTTON_PIN 3 // GPIO RTC capable
 
 // Configuration MQTT (ThingsBoard)
-const char *mqtt_server = "192.168.1.14";
+const char *mqtt_server = "192.168.1.52";
 const int mqtt_port = 1883;
 const char *mqtt_client_id = "ESP32C3_Client";
 const char *mqtt_topic = "v1/feedfish/esp32/";
@@ -331,10 +331,10 @@ void setup()
   disconnectMQTT();
   disconnectFromWiFi();
 
-  if (lastBatteryLevel < 3.1)
+  if (lastBatteryLevel < 3.5)
   {
     Serial.println("Battery level is low");
-    while (readBatteryLevel() < 3.1)
+    while (readBatteryLevel() < 3.5)
     {
       setLEDState(HIGH);
       delay(500);
